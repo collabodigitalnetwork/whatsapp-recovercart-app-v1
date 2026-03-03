@@ -2,6 +2,14 @@
 
 A powerful Shopify app for recovering abandoned carts through WhatsApp Business API messages with AI-powered insights and optimization.
 
+> _Originally this repository contained only high-level planning notes. It now includes the full production-ready Shopify app implementation alongside the planning docs._
+
+## 🎯 Project Status
+- ✅ Phase 1-3: Planning, architecture, intelligence layer
+- ✅ Phase 4: Advanced features & insights
+- ✅ Phase 5: Production deployment & hardening
+- 🚀 Ready for integration testing and launch preparations
+
 ## 🚀 Features
 
 - **WhatsApp Cart Recovery**: Automated abandoned cart recovery via WhatsApp
@@ -36,8 +44,8 @@ A powerful Shopify app for recovering abandoned carts through WhatsApp Business 
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/your-org/whatsapp-recovercart-shopify.git
-cd whatsapp-recovercart-shopify
+git clone https://github.com/collabodigitalnetwork/whatsapp-recovercart-app-v1.git
+cd whatsapp-recovercart-app-v1
 npm install
 ```
 
@@ -56,7 +64,7 @@ SHOPIFY_API_KEY=your_api_key_from_partner_dashboard
 SHOPIFY_API_SECRET=your_api_secret_from_partner_dashboard
 SHOPIFY_WEBHOOK_SECRET=generated_webhook_secret
 SHOPIFY_APP_URL=https://your-app-domain.com
-SHOPIFY_SCOPES=read_products,write_products,read_customers,read_orders,write_orders
+SCOPES=read_products,write_products,read_customers,read_orders,write_orders
 
 # Facebook/WhatsApp Configuration
 FACEBOOK_APP_ID=your_facebook_app_id
