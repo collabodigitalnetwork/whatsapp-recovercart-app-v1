@@ -21,6 +21,8 @@ export default function App() {
         <s-link href="/app" rel="home">Dashboard</s-link>
         <s-link href="/app/automation">Automation</s-link>
         <s-link href="/app/templates">Templates</s-link>
+        <s-link href="/app/insights">Smart Insights</s-link>
+        <s-link href="/app/experiments">A/B Testing</s-link>
         <s-link href="/app/delivery">Delivery</s-link>
         <s-link href="/app/analytics">Analytics</s-link>
         <s-link href="/app/settings">Settings</s-link>

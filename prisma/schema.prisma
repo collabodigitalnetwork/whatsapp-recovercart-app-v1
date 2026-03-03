@@ -92,6 +92,21 @@ enum DeliveryStatus {
   EXCEPTION
 }
 
+enum ExperimentType {
+  TEMPLATE
+  TIMING
+  INCENTIVE
+  WORKFLOW
+}
+
+enum ExperimentStatus {
+  DRAFT
+  RUNNING
+  COMPLETED
+  PAUSED
+  CANCELLED
+}
+
 // ------------------
 // Core Models
 // ------------------
@@ -133,6 +148,7 @@ model Shop {
   analytics         AnalyticsSnapshot[]
   recoveryWorkflows RecoveryWorkflow[]
   eventLogs         EventLog[]
+  experiments       Experiment[]
 }
 
 model ShopSettings {
@@ -340,6 +356,42 @@ model AnalyticsSnapshot {
   shop      Shop     @relation(fields: [shopId], references: [id])
 
   @@index([shopId, metric, date])
+}
+
+model Experiment {
+  id           String           @id @default(cuid())
+  shopId       String
+  name         String
+  type         ExperimentType
+  status       ExperimentStatus @default(DRAFT)
+  hypothesis   String?
+  variants     Json // Array of variant configurations
+  trafficSplit Int              @default(50)
+  startDate    DateTime?
+  endDate      DateTime?
+  duration     Int              @default(7) // days
+  winner       String?
+  significance Float?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  shop         Shop             @relation(fields: [shopId], references: [id])
+  results      ExperimentResult[]
+
+  @@index([shopId, status])
+}
+
+model ExperimentResult {
+  id           String     @id @default(cuid())
+  experimentId String
+  variantName  String
+  visits       Int        @default(0)
+  conversions  Int        @default(0)
+  revenue      Decimal    @default(0)
+  date         DateTime
+  createdAt    DateTime   @default(now())
+  experiment   Experiment @relation(fields: [experimentId], references: [id])
+
+  @@unique([experimentId, variantName, date])
 }
 
 model EventLog {

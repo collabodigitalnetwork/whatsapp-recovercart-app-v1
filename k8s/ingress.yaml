@@ -1,0 +1,159 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whatsapp-recovercart-ingress
+  namespace: production
+  annotations:
+    # NGINX Ingress Controller annotations
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.shopify.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.shopify.com; img-src 'self' data: https:; font-src 'self' https://cdn.shopify.com; connect-src 'self' wss: https:;";
+    
+    # CORS for Shopify
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://admin.shopify.com, https://*.myshopify.com"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization,X-Shopify-Topic,X-Shopify-Hmac-Sha256,X-Shopify-Shop-Domain"
+    
+    # Load balancing
+    nginx.ingress.kubernetes.io/load-balance: "round_robin"
+    nginx.ingress.kubernetes.io/upstream-keepalive-connections: "32"
+    
+    # Body size limits
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/client-max-body-size: "10m"
+    
+    # Timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    
+    # SSL Configuration
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # Monitoring
+    nginx.ingress.kubernetes.io/enable-access-log: "true"
+    nginx.ingress.kubernetes.io/enable-rewrite-log: "true"
+    
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - your-app-domain.com
+    - api.your-app-domain.com
+    secretName: whatsapp-recovercart-tls
+  rules:
+  - host: your-app-domain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: whatsapp-recovercart-service
+            port:
+              number: 80
+  - host: api.your-app-domain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: whatsapp-recovercart-service
+            port:
+              number: 80
+
+---
+# Separate ingress for webhooks with different rate limits
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whatsapp-recovercart-webhooks
+  namespace: production
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    
+    # Higher rate limits for Shopify webhooks
+    nginx.ingress.kubernetes.io/rate-limit: "1000"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    
+    # Webhook-specific configuration
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    
+    # Allow Shopify IPs only (configure based on your needs)
+    nginx.ingress.kubernetes.io/whitelist-source-range: "0.0.0.0/0"
+    
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - webhooks.your-app-domain.com
+    secretName: whatsapp-recovercart-webhooks-tls
+  rules:
+  - host: webhooks.your-app-domain.com
+    http:
+      paths:
+      - path: /webhooks
+        pathType: Prefix
+        backend:
+          service:
+            name: whatsapp-recovercart-service
+            port:
+              number: 80
+
+---
+# Intelligence API ingress (internal only)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: intelligence-api-ingress
+  namespace: production
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    
+    # Restrict access to internal networks only
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    
+    # Basic auth for additional security
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: intelligence-api-auth
+    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required - Intelligence API'
+    
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - intelligence.internal.your-domain.com
+    secretName: intelligence-api-tls
+  rules:
+  - host: intelligence.internal.your-domain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: intelligence-service
+            port:
+              number: 3002

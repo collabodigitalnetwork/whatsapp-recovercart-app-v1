@@ -4,6 +4,7 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { logEvent } from "../services/eventLog.server";
 import { scheduleRecoveryWorkflow } from "../services/cartRecovery.server";
+import { publishCartAbandoned } from "../lib/eventPublisher.server";
 import logger from "../lib/logger.server";
 
 interface CheckoutPayload {
@@ -82,6 +83,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     customerHash: checkout.email,
     ingestionSource: "shopify",
   });
+
+  // Publish to intelligence layer
+  if (checkout.abandoned_checkout_url) {
+    await publishCartAbandoned(shop, cart);
+  }
 
   if (checkout.abandoned_checkout_url && cart.workflow?.steps?.length) {
     await scheduleRecoveryWorkflow({ cartId: cart.id, shopId: shop });
