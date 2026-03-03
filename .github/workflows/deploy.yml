@@ -170,7 +170,7 @@ jobs:
         kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
 
     - name: Deploy to staging
-      uses: azure/k8s-deploy@v1
+      uses: azure/k8s-deploy@v5
       with:
         manifests: |
           k8s/deployment.yaml
@@ -232,7 +232,7 @@ jobs:
         kubeconfig: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
 
     - name: Deploy to production
-      uses: azure/k8s-deploy@v1
+      uses: azure/k8s-deploy@v5
       with:
         manifests: |
           k8s/deployment.yaml
