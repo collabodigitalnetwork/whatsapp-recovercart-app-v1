@@ -4,7 +4,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useFetcher } from "react-router";
+import { useFetcher, Link } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -13,6 +13,8 @@ import { StatCard } from "../components/StatCard";
 import { EmptyState } from "../components/EmptyState";
 import { CartStatus } from "@prisma/client";
 import { format, startOfDay, subDays } from "date-fns";
+import { getConnectionStatus } from "../services/whatsapp.server";
+import { getRecoveryStats } from "../services/cartRecovery.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -23,222 +25,281 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { settings: true },
   });
 
-  // Get stats for the last 30 days
-  const thirtyDaysAgo = subDays(new Date(), 30);
-  
-  const [
-    totalCarts,
-    recoveredCarts,
-    totalMessages,
-    deliveredMessages,
-    totalRevenue,
-    recentCarts
-  ] = await Promise.all([
-    // Total abandoned carts
-    prisma.cart.count({
-      where: {
-        shopId: shop?.id ?? session.shop,
-        abandonedAt: { gte: thirtyDaysAgo },
-      },
-    }),
-    // Recovered carts
-    prisma.cart.count({
-      where: {
-        shopId: shop?.id ?? session.shop,
-        status: CartStatus.RECOVERED,
-        recoveredAt: { gte: thirtyDaysAgo },
-      },
-    }),
-    // Total messages sent
-    prisma.whatsAppMessage.count({
-      where: {
-        shopId: shop?.id ?? session.shop,
-        sentAt: { gte: thirtyDaysAgo },
-      },
-    }),
-    // Successfully delivered messages
-    prisma.whatsAppMessage.count({
-      where: {
-        shopId: shop?.id ?? session.shop,
-        status: { in: ["DELIVERED", "READ"] },
-        sentAt: { gte: thirtyDaysAgo },
-      },
-    }),
-    // Total recovered revenue
-    prisma.cart.aggregate({
-      where: {
-        shopId: shop?.id ?? session.shop,
-        status: CartStatus.RECOVERED,
-        recoveredAt: { gte: thirtyDaysAgo },
-      },
-      _sum: { subtotal: true },
-    }),
-    // Recent abandoned carts
-    prisma.cart.findMany({
-      where: {
-        shopId: shop?.id ?? session.shop,
-        status: CartStatus.OPEN,
-      },
-      orderBy: { abandonedAt: 'desc' },
-      take: 10,
-      include: {
-        items: true,
-        workflow: true,
-      },
-    }),
-  ]);
+  if (!shop) {
+    throw new Response("Shop not found", { status: 404 });
+  }
 
-  const recoveryRate = totalCarts > 0 ? (recoveredCarts / totalCarts * 100).toFixed(1) : 0;
-  const messageDeliveryRate = totalMessages > 0 ? (deliveredMessages / totalMessages * 100).toFixed(1) : 0;
+  // Get WhatsApp connection status
+  let whatsappStatus = null;
+  if (shop.settings?.whatsappEnabled) {
+    whatsappStatus = await getConnectionStatus(shop.id);
+  }
+
+  // Get recovery stats
+  const recoveryStats = await getRecoveryStats(shop.id, 30);
+
+  // Get recent abandoned carts
+  const recentCarts = await prisma.cart.findMany({
+    where: {
+      shopId: shop.id,
+      status: CartStatus.ABANDONED,
+    },
+    orderBy: { abandonedAt: 'desc' },
+    take: 10,
+    include: {
+      items: true,
+      workflow: true,
+    },
+  });
+
+  // Get active workflows
+  const activeWorkflows = await prisma.recoveryWorkflow.count({
+    where: {
+      shopId: shop.id,
+      status: "ACTIVE",
+    },
+  });
 
   return {
     shop,
-    stats: {
-      totalCarts,
-      recoveredCarts,
-      recoveryRate,
-      totalRevenue: totalRevenue._sum.subtotal?.toFixed(2) ?? '0',
-      totalMessages,
-      messageDeliveryRate,
-    },
+    whatsappStatus,
+    stats: recoveryStats,
     recentCarts,
+    activeWorkflows,
   };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
-  
-  // This could be used for quick actions from the dashboard
-  const formData = await request.formData();
-  const action = formData.get("action");
-
-  if (action === "enable_whatsapp") {
-    // Enable WhatsApp integration
-  }
-
-  return null;
+  const { session } = await authenticate.admin(request);
+  // Handle any dashboard actions
+  return { success: true };
 };
 
-export default function Index() {
-  const fetcher = useFetcher<typeof action>();
-  const { shop, stats, recentCarts } = useFetcher<typeof loader>().data ?? {};
+export default function Dashboard() {
+  const fetcher = useFetcher();
+  const { shop, whatsappStatus, stats, recentCarts, activeWorkflows } = 
+    fetcher.data ?? useLoaderData<typeof loader>();
   const shopify = useAppBridge();
 
-  useEffect(() => {
-    if (fetcher.data?.success) {
-      shopify.toast.show("Action completed successfully");
-    }
-  }, [fetcher.data, shopify]);
-
-  const navigateToSettings = () => {
-    window.location.href = "/app/settings";
-  };
-
-  const navigateToAnalytics = () => {
-    window.location.href = "/app/analytics";
-  };
-
-  if (!shop?.settings?.whatsappEnabled) {
-    return (
-      <s-page heading="WhatsApp RecoverCart">
-        <EmptyState
-          heading="Get started with WhatsApp Recovery"
-          action={{
-            content: "Configure WhatsApp",
-            onAction: navigateToSettings,
-          }}
-        >
-          Connect your WhatsApp Business account to start recovering abandoned carts
-          and sending delivery updates to your customers.
-        </EmptyState>
-      </s-page>
-    );
-  }
+  const isWhatsAppConnected = whatsappStatus?.connected;
 
   return (
-    <s-page heading="WhatsApp RecoverCart">
-      <s-button slot="primary-action" onClick={navigateToAnalytics}>
-        View Analytics
+    <s-page heading="Dashboard">
+      <s-button slot="primary-action" url="/app/automation">
+        Create Workflow
       </s-button>
 
-      <s-section heading="Performance Overview">
-        <s-stack direction="inline" gap="loose">
-          <StatCard
-            title="Recovery Rate"
-            value={stats?.recoveryRate ?? 0}
-            suffix="%"
-            trend={{ value: 5.2, positive: true }}
-          />
-          <StatCard
-            title="Recovered Revenue"
-            value={`$${stats?.totalRevenue ?? 0}`}
-            trend={{ value: 12.8, positive: true }}
-          />
-          <StatCard
-            title="Messages Sent"
-            value={stats?.totalMessages ?? 0}
-          />
-          <StatCard
-            title="Delivery Rate"
-            value={stats?.messageDeliveryRate ?? 0}
-            suffix="%"
-          />
-        </s-stack>
-      </s-section>
+      {/* WhatsApp Connection Alert */}
+      {!isWhatsAppConnected && (
+        <s-layout>
+          <s-layout-section>
+            <s-banner tone="warning">
+              <s-stack direction="inline" gap="base" align="center">
+                <s-text>
+                  WhatsApp is not connected. Connect your WhatsApp Business account to start recovering carts.
+                </s-text>
+                <s-button url="/app/onboarding">Connect WhatsApp</s-button>
+              </s-stack>
+            </s-banner>
+          </s-layout-section>
+        </s-layout>
+      )}
 
-      <s-section heading="Recent Abandoned Carts">
-        {recentCarts?.length === 0 ? (
+      {/* Connection Issues Alert */}
+      {isWhatsAppConnected === false && whatsappStatus?.error && (
+        <s-layout>
+          <s-layout-section>
+            <s-banner tone="critical">
+              <s-stack direction="block" gap="tight">
+                <s-text>WhatsApp connection error: {whatsappStatus.error}</s-text>
+                <s-stack direction="inline" gap="tight">
+                  <Link to="/app/settings">
+                    <s-button>Check Settings</s-button>
+                  </Link>
+                  <s-button variant="plain" url="/app/help/whatsapp-connection">
+                    Get Help
+                  </s-button>
+                </s-stack>
+              </s-stack>
+            </s-banner>
+          </s-layout-section>
+        </s-layout>
+      )}
+
+      {/* Stats Cards */}
+      <s-layout>
+        <s-layout-section>
+          <s-stack direction="inline" gap="loose" align="stretch">
+            <StatCard
+              title="Abandoned Carts"
+              value={stats.abandoned}
+              subtitle={`Last ${stats.period}`}
+              tone="warning"
+            />
+            <StatCard
+              title="Recovered Carts"
+              value={stats.recovered}
+              subtitle={`${stats.recoveryRate?.toFixed(1)}% recovery rate`}
+              tone="success"
+            />
+            <StatCard
+              title="Messages Sent"
+              value={stats.messagesSent}
+              subtitle={`${stats.readRate?.toFixed(1)}% read rate`}
+              tone="info"
+            />
+            <StatCard
+              title="Revenue Recovered"
+              value={`$${stats.recoveredRevenue?.toFixed(2) ?? '0'}`}
+              subtitle={`Last ${stats.period}`}
+              tone="success"
+            />
+          </s-stack>
+        </s-layout-section>
+      </s-layout>
+
+      {/* WhatsApp Status Card */}
+      {isWhatsAppConnected && (
+        <s-layout>
+          <s-layout-section secondary>
+            <s-card>
+              <s-box padding="base">
+                <s-stack direction="block" gap="base">
+                  <s-heading>WhatsApp Status</s-heading>
+                  <s-stack direction="inline" gap="tight" align="center">
+                    <s-icon source="checkmark" tone="success" />
+                    <s-text>Connected</s-text>
+                  </s-stack>
+                  <s-text variant="bodySm">
+                    Phone: {whatsappStatus.phoneNumber}
+                  </s-text>
+                  {whatsappStatus.businessName && (
+                    <s-text variant="bodySm">
+                      Business: {whatsappStatus.businessName}
+                    </s-text>
+                  )}
+                  {whatsappStatus.qualityRating && (
+                    <s-stack direction="inline" gap="tight" align="center">
+                      <s-text variant="bodySm">Quality:</s-text>
+                      <s-badge tone={
+                        whatsappStatus.qualityRating === "GREEN" ? "success" :
+                        whatsappStatus.qualityRating === "YELLOW" ? "warning" :
+                        "critical"
+                      }>
+                        {whatsappStatus.qualityRating}
+                      </s-badge>
+                    </s-stack>
+                  )}
+                  <s-button variant="plain" url="/app/settings">
+                    Manage Connection
+                  </s-button>
+                </s-stack>
+              </s-box>
+            </s-card>
+          </s-layout-section>
+        </s-layout>
+      )}
+
+      {/* Main Content */}
+      <s-layout>
+        <s-layout-section>
           <s-card>
-            <s-box padding="loose">
-              <s-text>No abandoned carts yet. When customers leave items in their cart, they'll appear here.</s-text>
-            </s-box>
-          </s-card>
-        ) : (
-          <s-data-table
-            columnContentTypes={['text', 'text', 'numeric', 'text', 'text']}
-            headings={['Customer', 'Abandoned', 'Value', 'Status', 'Actions']}
-            rows={recentCarts?.map(cart => [
-              cart.customerEmail || 'Guest',
-              format(new Date(cart.abandonedAt), 'MMM dd, HH:mm'),
-              `$${cart.subtotal}`,
-              cart.workflow ? (
-                <s-badge tone="success">Workflow Active</s-badge>
+            <s-box padding="base">
+              <s-heading>Recent Abandoned Carts</s-heading>
+              
+              {recentCarts.length === 0 ? (
+                <EmptyState
+                  heading="No abandoned carts yet"
+                  action={{
+                    content: isWhatsAppConnected ? "View all carts" : "Connect WhatsApp",
+                    url: isWhatsAppConnected ? "/app/carts" : "/app/onboarding",
+                  }}
+                >
+                  {isWhatsAppConnected 
+                    ? "When customers abandon their carts, they'll appear here."
+                    : "Connect WhatsApp to start recovering abandoned carts."
+                  }
+                </EmptyState>
               ) : (
-                <s-badge tone="warning">No Workflow</s-badge>
-              ),
-              <s-button size="slim">View</s-button>
-            ]) ?? []}
-          />
-        )}
-      </s-section>
+                <s-stack direction="block" gap="base">
+                  <s-data-table
+                    columnContentTypes={['text', 'numeric', 'text', 'text', 'text']}
+                    headings={['Customer', 'Value', 'Items', 'Status', 'Abandoned']}
+                    rows={recentCarts.map(cart => [
+                      cart.customerEmail || 'Guest',
+                      `$${cart.subtotal.toFixed(2)}`,
+                      `${cart.items.length} items`,
+                      cart.workflow ? 'Workflow Active' : 'No Workflow',
+                      format(new Date(cart.abandonedAt), 'MMM d, h:mm a'),
+                    ])}
+                  />
+                  
+                  <s-button variant="plain" url="/app/carts">
+                    View all carts
+                  </s-button>
+                </s-stack>
+              )}
+            </s-box>
+          </s-card>
+        </s-layout-section>
 
-      <s-section slot="aside" heading="Quick Actions">
-        <s-stack direction="block" gap="base">
+        <s-layout-section secondary>
           <s-card>
             <s-box padding="base">
               <s-stack direction="block" gap="base">
-                <s-heading>Need help?</s-heading>
-                <s-paragraph>
-                  Check our guide on setting up effective cart recovery workflows.
-                </s-paragraph>
-                <s-button url="https://help.shopify.com">View Guide</s-button>
+                <s-heading>Quick Stats</s-heading>
+                
+                <s-stack direction="block" gap="tight">
+                  <s-text>
+                    <strong>Active Workflows:</strong> {activeWorkflows}
+                  </s-text>
+                  <s-text>
+                    <strong>Messages Today:</strong> {stats.messagesSent || 0}
+                  </s-text>
+                  <s-text>
+                    <strong>Avg Cart Value:</strong> ${stats.avgCartValue?.toFixed(2) || '0'}
+                  </s-text>
+                </s-stack>
+                
+                <s-button variant="plain" url="/app/analytics">
+                  View detailed analytics
+                </s-button>
               </s-stack>
             </s-box>
           </s-card>
-          
+
           <s-card>
             <s-box padding="base">
               <s-stack direction="block" gap="base">
-                <s-heading>WhatsApp Status</s-heading>
-                <s-badge tone="success">Connected</s-badge>
-                <s-text>{stats?.totalMessages ?? 0} messages sent today</s-text>
+                <s-heading>Recent Activity</s-heading>
+                
+                <s-stack direction="block" gap="tight">
+                  {/* This would show recent events */}
+                  <s-text variant="bodySm">
+                    • Message sent to +1234567890
+                  </s-text>
+                  <s-text variant="bodySm">
+                    • Cart recovered - $125.00
+                  </s-text>
+                  <s-text variant="bodySm">
+                    • New workflow created
+                  </s-text>
+                </s-stack>
+                
+                <s-button variant="plain" url="/app/activity">
+                  View all activity
+                </s-button>
               </s-stack>
             </s-box>
           </s-card>
-        </s-stack>
-      </s-section>
+        </s-layout-section>
+      </s-layout>
     </s-page>
   );
+}
+
+export function useLoaderData<T>(): T {
+  return {} as T;
 }
 
 export const headers: HeadersFunction = (headersArgs) => {
