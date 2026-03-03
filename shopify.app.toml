@@ -1,0 +1,71 @@
+# WhatsApp RecoverCart App Configuration
+
+scopes = "read_checkouts,write_checkouts,read_customers,read_orders,read_products,write_notifications,read_fulfillments"
+
+[access_scopes]
+# Using Shopify managed installation for better merchant experience
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://localhost:3000/auth/callback",
+  "https://localhost:3000/auth/shopify/callback",
+  "https://localhost:3000/api/auth/callback",
+]
+
+[webhooks]
+api_version = "2025-01"
+
+  # Cart/Checkout webhooks for abandonment tracking
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/carts/create"
+  topics = ["carts/create"]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/carts/update"
+  topics = ["carts/update"]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/checkouts/create"
+  topics = ["checkouts/create"]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/checkouts/update"
+  topics = ["checkouts/update"]
+
+  # Order webhooks to stop recovery messages
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/create"
+  topics = ["orders/create"]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/fulfilled"
+  topics = ["orders/fulfilled"]
+
+  # App lifecycle webhooks
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = ["app/uninstalled"]
+
+  [[webhooks.subscriptions]]
+  topics = ["app/scopes_update"]
+  uri = "/webhooks/app/scopes_update"
+
+  # Customer data compliance webhooks (required for public apps)
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = ["customers/data_request"]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = ["customers/redact"]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = ["shop/redact"]
+
+[app_proxy]
+# Not needed for embedded admin app
+
+[pos]
+embedded = false
