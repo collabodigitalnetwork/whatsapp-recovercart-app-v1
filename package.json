@@ -48,7 +48,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@shopify/api-codegen-preset": "^1.2.0",
+    "@shopify/api-codegen-preset": "^2.0.0",
     "@shopify/polaris-types": "^1.0.1",
     "@types/bull": "^3.15.9",
     "@types/eslint": "^9.6.1",
